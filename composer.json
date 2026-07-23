@@ -1,0 +1,27 @@
+{
+    "name": "php-db/phpdb-qa-tools",
+    "description": "Shared QA toolchain for php-db components: Mago formatting, linting and static analysis, plus the PHPUnit baseline and CI workflow.",
+    "license": "BSD-3-Clause",
+    "type": "library",
+    "keywords": [
+        "phpdb",
+        "qa",
+        "coding-standards",
+        "mago",
+        "linter",
+        "formatter",
+        "static-analysis"
+    ],
+    "homepage": "https://github.com/php-db/phpdb-qa-tools",
+    "support": {
+        "issues": "https://github.com/php-db/phpdb-qa-tools/issues",
+        "source": "https://github.com/php-db/phpdb-qa-tools",
+        "forum": "https://github.com/php-db/phpdb-qa-tools/discussions"
+    },
+    "require": {
+        "php": "~8.2.0 || ~8.3.0 || ~8.4.0 || ~8.5.0"
+    },
+    "suggest": {
+        "phpunit/phpunit": "To run the shared test configuration (^11.5 || ^12.0)"
+    }
+}

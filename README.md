@@ -92,14 +92,13 @@ name: CI
 
 on:
   push:
-    branches: ["main"]
   pull_request:
 
 jobs:
   qa:
     uses: php-db/phpdb-qa-tools/.github/workflows/qa.yml@main
     with:
-      php-versions: '["8.2", "8.3", "8.4"]'
+      php-versions: '["8.2", "8.3", "8.4", "8.5"]'
       run-integration: false
 ```
 
