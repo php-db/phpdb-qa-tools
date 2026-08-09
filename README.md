@@ -83,13 +83,16 @@ Add the standard scripts to your `composer.json`:
 
 ### 4. CI
 
-This repository ships a reusable QA workflow
-([`.github/workflows/continuous-integration.yml`](.github/workflows/continuous-integration.yml)).
-A consuming repository's entire CI file becomes:
+This repository ships a reusable CI workflow
+([`.github/workflows/continuous-integration.yml`](.github/workflows/continuous-integration.yml))
+with four jobs: `mago` (format/lint/analyze/guard), `test` (unit + optional
+integration, across a `php x [lowest, locked, latest]` matrix), and two
+optional downstream jobs, `codecov` and `mutation-test`, both gated on
+`test` succeeding. A consuming repository's entire CI file becomes:
 
 ```yaml
-# .github/workflows/ci.yml
-name: CI
+# .github/workflows/continuous-integration.yml
+name: "Continuous Integration"
 
 on:
   push:
@@ -98,20 +101,26 @@ on:
 jobs:
   qa:
     uses: php-db/phpdb-qa-tools/.github/workflows/continuous-integration.yml@main
+    secrets: inherit
     with:
       php-versions: '["8.2", "8.3", "8.4", "8.5"]'
       run-integration: false
+      # DB service (only needed if run-integration: true); see
+      # docs/workflow-architecture.md for the full input list.
+      db-image: ""
+      enable-codecov: false
+      enable-infection: false
 ```
 
-The workflow installs Mago, then runs `composer cs-check`, `composer static-analysis`,
-and `composer test` across the PHP version matrix. Pin `@main` to a tag (e.g. `@1.0.0`)
-once released.
+See [Workflow architecture](docs/workflow-architecture.md) for the full job
+graph, the DB-service mechanics, and the Codecov/Infection secrets wiring.
+Pin `@main` to a tag (e.g. `@1.0.0`) once released.
 
 ## Documentation
 
 - [Migration guide](docs/migration.md) — moving a repository off laminas-coding-standard.
 - [Rule rationale](docs/rules.md) — why the non-default choices are what they are.
-- [Workflow architecture](docs/workflow-architecture.md) — planned job-split design for DB-backed integration tests, Codecov, and Infection.
+- [Workflow architecture](docs/workflow-architecture.md) — job-split design for DB-backed integration tests, Codecov, and Infection.
 
 ## License
 

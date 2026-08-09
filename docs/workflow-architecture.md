@@ -1,11 +1,9 @@
-# Workflow architecture (planned)
+# Workflow architecture
 
-This document describes the planned job-split design for
+This document describes the job-split design implemented in
 [`continuous-integration.yml`](../.github/workflows/continuous-integration.yml)
 to support driver packages that need a seeded RDBMS for integration testing,
-plus optional Codecov and Infection mutation testing. **Not yet implemented**
-— the current workflow only runs the `qa` job (Mago + PHPUnit). This is a
-reference for the follow-up PR that implements it.
+plus optional Codecov and Infection mutation testing.
 
 ## Job graph
 
@@ -36,10 +34,26 @@ Matrix: `php x [lowest, locked, latest]`.
 
 ### DB service (manual step, not native `services:`)
 
-GitHub Actions job-level `services:` blocks can't be conditionally omitted
-per input (no `if:` support there), and different driver packages need
-different engines (MySQL now, Postgres/SQLite later). Instead, DB startup is
-a manual step gated on a generic `db-image` input:
+Native job-level `services:` blocks *can* be conditionally disabled (an
+empty `image:` expression means the service won't start — see
+[GitHub's docs](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#jobsjob_idservicesservice_idimage)),
+so conditionality alone isn't why this uses a manual step. The real
+constraint: `services.<id>.env` is a **static YAML map** — its *keys* must
+be fixed at authoring time, and expressions can only substitute values, not
+key names. Different engines need different env var names entirely
+(MySQL's `MYSQL_ROOT_HOST`/`MYSQL_DATABASE`, Postgres's
+`POSTGRES_PASSWORD`/`POSTGRES_DB`, ...), so a single generic `db-env-json`
+input (arbitrary keys, unknown to the workflow until runtime) can't be
+expressed through native `services:` at all — only a step that parses JSON
+at runtime (the `jq` unpacking below) can.
+
+**This is deliberately engine-agnostic** — the workflow never hardcodes
+MySQL (or any other engine). `php-db/phpdb` (the base abstraction package,
+no RDBMS at all) simply never sets `db-image` and pays zero cost. Every
+driver package (MySQL, Postgres, MariaDB, Oracle, MSSQL, ...) supplies its
+own image/env/port/health-command; SQLite drivers need no service at all
+(embedded, no server) and also just omit `db-image`. The shared workflow
+never needs to enumerate or special-case any specific engine.
 
 ```yaml
 - name: Start DB service
@@ -53,9 +67,9 @@ a manual step gated on a generic `db-image` input:
 - name: Wait for DB to be healthy
   if: inputs.db-image != ''
   run: |
-    for i in $(seq 1 30); do
+    for i in $(seq 1 ${{ inputs.db-health-retries }}); do
       docker exec db ${{ inputs.db-health-cmd }} && exit 0
-      sleep 2
+      sleep ${{ inputs.db-health-interval-seconds }}
     done
     echo "DB did not become healthy in time" && exit 1
 ```
@@ -65,6 +79,10 @@ run` doesn't accept JSON directly. The health check polls via `docker exec`
 in a retry loop rather than Docker's native `HEALTHCHECK`, so it works the
 same regardless of image. No explicit teardown is needed — GitHub-hosted
 runners are ephemeral.
+
+`db-health-retries` / `db-health-interval-seconds` default to `30` / `2`
+(60s total — plenty for MySQL/Postgres/MariaDB) but are overridable per
+caller, since Oracle/MSSQL images can take several minutes to become ready.
 
 Repos with no DB simply omit `db-image` (default `""`); both steps are
 skipped, zero cost.
@@ -117,7 +135,7 @@ mapping — it transparently pulls from whichever scope actually defines each
 secret. Cross-repo `secrets: inherit` works for reusable workflows called
 within the same GitHub org.
 
-## New inputs (not yet added)
+## Inputs
 
 | Input | Purpose |
 |---|---|
@@ -125,6 +143,8 @@ within the same GitHub org.
 | `db-env-json` | JSON object of container env vars. |
 | `db-port` | Port to expose/map. |
 | `db-health-cmd` | Command run via `docker exec` to check readiness. |
+| `db-health-retries` | Max health-check attempts (default `30`). Raise for slow-starting engines (Oracle, MSSQL). |
+| `db-health-interval-seconds` | Seconds to sleep between health-check attempts (default `2`). |
 | `enable-codecov` | Turns on the `codecov` job. |
 | `enable-infection` | Turns on the `mutation-test` job. |
 | `coverage-php-version` | Which matrix leg is canonical for coverage/mutation. |
@@ -134,8 +154,7 @@ Plus `secrets: CODECOV_TOKEN`, `INFECTION_DASHBOARD_API_KEY` on
 
 ## Reference example
 
-Once implemented, phpdb-mysql's caller workflow
-(`.github/workflows/continuous-integration.yml`) is the reference example
-for wiring up a DB-backed driver package — every input set with a brief
-comment explaining what it controls, so other driver packages (Postgres,
-SQLite, etc.) can copy/adapt it directly.
+phpdb-mysql's caller workflow (`.github/workflows/continuous-integration.yml`)
+is the reference example for wiring up a DB-backed driver package — every
+input set with a brief comment explaining what it controls, so other driver
+packages (Postgres, SQLite, etc.) can copy/adapt it directly.
