@@ -83,7 +83,8 @@ Add the standard scripts to your `composer.json`:
 
 ### 4. CI
 
-This repository ships a reusable QA workflow ([`.github/workflows/qa.yml`](.github/workflows/qa.yml)).
+This repository ships a reusable QA workflow
+([`.github/workflows/continuous-integration.yml`](.github/workflows/continuous-integration.yml)).
 A consuming repository's entire CI file becomes:
 
 ```yaml
@@ -96,7 +97,7 @@ on:
 
 jobs:
   qa:
-    uses: php-db/phpdb-qa-tools/.github/workflows/qa.yml@main
+    uses: php-db/phpdb-qa-tools/.github/workflows/continuous-integration.yml@main
     with:
       php-versions: '["8.2", "8.3", "8.4", "8.5"]'
       run-integration: false
@@ -110,6 +111,7 @@ once released.
 
 - [Migration guide](docs/migration.md) — moving a repository off laminas-coding-standard.
 - [Rule rationale](docs/rules.md) — why the non-default choices are what they are.
+- [Workflow architecture](docs/workflow-architecture.md) — planned job-split design for DB-backed integration tests, Codecov, and Infection.
 
 ## License
 

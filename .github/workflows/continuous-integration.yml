@@ -1,4 +1,4 @@
-name: "QA"
+name: "Continuous Integration"
 
 on:
   workflow_call:
@@ -46,12 +46,20 @@ jobs:
       - name: Pin Mago PHP version
         run: echo "MAGO_PHP_VERSION=${{ matrix.php }}" >> "$GITHUB_ENV"
 
-      - name: Check coding standards
-        run: composer cs-check
+      - name: Check formatting
+        run: mago format --check
 
-      - name: Static analysis
+      - name: Lint
         if: success() || failure()
-        run: composer static-analysis
+        run: mago lint
+
+      - name: Analyze
+        if: success() || failure()
+        run: mago analyze
+
+      - name: Guard
+        if: success() || failure()
+        run: mago guard
 
       - name: Unit tests
         if: success() || failure()
