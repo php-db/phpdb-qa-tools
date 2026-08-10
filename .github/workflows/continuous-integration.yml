@@ -1,0 +1,256 @@
+name: "Continuous Integration"
+
+on:
+  workflow_call:
+    inputs:
+      php-versions:
+        description: "JSON array of PHP versions to run the matrix against."
+        type: string
+        required: false
+        default: '["8.2", "8.3", "8.4", "8.5"]'
+      run-integration:
+        description: "Run the integration test suite in addition to the unit suite."
+        type: boolean
+        required: false
+        default: false
+      composer-options:
+        description: "Extra flags passed to composer install."
+        type: string
+        required: false
+        default: ""
+      db-image:
+        description: "Container image for the DB service (e.g. mysql:8.0). Empty = no DB."
+        type: string
+        required: false
+        default: ""
+      db-env-json:
+        description: "JSON object of DB container env vars."
+        type: string
+        required: false
+        default: "{}"
+      db-port:
+        description: "Port to expose/map for the DB container."
+        type: string
+        required: false
+        default: ""
+      db-health-cmd:
+        description: "Command run via docker exec to check DB readiness."
+        type: string
+        required: false
+        default: ""
+      db-health-retries:
+        description: "Max DB health-check attempts. Raise for slow-starting engines (Oracle, MSSQL)."
+        type: number
+        required: false
+        default: 30
+      db-health-interval-seconds:
+        description: "Seconds to sleep between DB health-check attempts."
+        type: number
+        required: false
+        default: 2
+      enable-codecov:
+        description: "Turn on the codecov job."
+        type: boolean
+        required: false
+        default: false
+      enable-infection:
+        description: "Turn on the mutation-test job."
+        type: boolean
+        required: false
+        default: false
+      coverage-php-version:
+        description: "Which php-versions entry is canonical for coverage/mutation testing."
+        type: string
+        required: false
+        default: ""
+    secrets:
+      CODECOV_TOKEN:
+        required: false
+      INFECTION_DASHBOARD_API_KEY:
+        required: false
+
+jobs:
+  mago:
+    name: "Mago (PHP ${{ matrix.php }})"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ${{ fromJSON(inputs.php-versions) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up PHP and Mago
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: none
+          tools: mago
+
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress ${{ inputs.composer-options }}
+
+      # Overrides php-version from the consumer's mago.toml for each matrix leg
+      # without mutating the committed config file.
+      - name: Pin Mago PHP version
+        run: echo "MAGO_PHP_VERSION=${{ matrix.php }}" >> "$GITHUB_ENV"
+
+      - name: Check formatting
+        run: mago format --check
+
+      - name: Lint
+        if: success() || failure()
+        run: mago lint
+
+      - name: Analyze
+        if: success() || failure()
+        run: mago analyze
+
+      - name: Guard
+        if: success() || failure()
+        run: mago guard
+
+  test:
+    name: "Test (PHP ${{ matrix.php }} | ${{ matrix.dependencies }})"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        php: ${{ fromJSON(inputs.php-versions) }}
+        dependencies: ["lowest", "locked", "latest"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          coverage: ${{ (matrix.php == inputs.coverage-php-version && matrix.dependencies == 'locked') && 'pcov' || 'none' }}
+
+      # DB service is a manual step, not a native `services:` block, because
+      # `services:` can't be conditionally omitted per input, and driver
+      # packages need different engines (mysql, postgres, mariadb, oracle,
+      # mssql, ...). Repos with no DB simply omit `db-image` (default ""),
+      # so both steps below are skipped at zero cost.
+      - name: Start DB service
+        if: inputs.db-image != ''
+        run: |
+          docker run -d --name db \
+            -p ${{ inputs.db-port }}:${{ inputs.db-port }} \
+            $(echo '${{ inputs.db-env-json }}' | jq -r 'to_entries[] | "-e \(.key)=\(.value)"' | tr '\n' ' ') \
+            ${{ inputs.db-image }}
+
+      - name: Wait for DB to be healthy
+        if: inputs.db-image != ''
+        run: |
+          for i in $(seq 1 ${{ inputs.db-health-retries }}); do
+            docker exec db ${{ inputs.db-health-cmd }} && exit 0
+            sleep ${{ inputs.db-health-interval-seconds }}
+          done
+          echo "DB did not become healthy in time" && exit 1
+
+      # Resolve dependencies at the configured strategy level.
+      # "locked" uses the committed composer.lock as-is.
+      - name: Install dependencies (lowest)
+        if: matrix.dependencies == 'lowest'
+        run: composer update --prefer-lowest --no-interaction --no-progress ${{ inputs.composer-options }}
+
+      - name: Install dependencies (locked)
+        if: matrix.dependencies == 'locked'
+        run: composer install --no-interaction --no-progress ${{ inputs.composer-options }}
+
+      - name: Install dependencies (latest)
+        if: matrix.dependencies == 'latest'
+        run: composer update --no-interaction --no-progress ${{ inputs.composer-options }}
+
+      - name: Unit tests
+        if: ${{ !(matrix.php == inputs.coverage-php-version && matrix.dependencies == 'locked') }}
+        run: composer test
+
+      - name: Unit tests with coverage
+        if: matrix.php == inputs.coverage-php-version && matrix.dependencies == 'locked'
+        run: composer test-coverage
+
+      - name: Integration tests
+        if: inputs.run-integration
+        run: composer test-integration
+
+      - name: Upload coverage artifact
+        if: matrix.php == inputs.coverage-php-version && matrix.dependencies == 'locked'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-clover
+          path: clover.xml
+
+  codecov:
+    name: "Codecov"
+    needs: [test]
+    if: inputs.enable-codecov
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download coverage artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-clover
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          # CODECOV_TOKEN is an org-wide upload token, which can't infer the
+          # target repo the way a repo-specific token can. `github.repository`
+          # resolves to the *calling* repo here, not phpdb-qa-tools.
+          slug: ${{ github.repository }}
+          files: clover.xml
+          fail_ci_if_error: true
+
+  mutation-test:
+    name: "Mutation testing"
+    needs: [test]
+    if: inputs.enable-infection
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up PHP and Mago
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.coverage-php-version }}
+          coverage: pcov
+          tools: mago
+
+      - name: Start DB service
+        if: inputs.db-image != '' && inputs.run-integration
+        run: |
+          docker run -d --name db \
+            -p ${{ inputs.db-port }}:${{ inputs.db-port }} \
+            $(echo '${{ inputs.db-env-json }}' | jq -r 'to_entries[] | "-e \(.key)=\(.value)"' | tr '\n' ' ') \
+            ${{ inputs.db-image }}
+
+      - name: Wait for DB to be healthy
+        if: inputs.db-image != '' && inputs.run-integration
+        run: |
+          for i in $(seq 1 ${{ inputs.db-health-retries }}); do
+            docker exec db ${{ inputs.db-health-cmd }} && exit 0
+            sleep ${{ inputs.db-health-interval-seconds }}
+          done
+          echo "DB did not become healthy in time" && exit 1
+
+      - name: Install dependencies
+        run: composer install --no-interaction --no-progress ${{ inputs.composer-options }}
+
+      - name: Pin Mago PHP version
+        run: echo "MAGO_PHP_VERSION=${{ inputs.coverage-php-version }}" >> "$GITHUB_ENV"
+
+      # Mago is invoked internally by Infection itself (staticAnalysisTool config
+      # in infection.json5), not by this workflow directly — no needs:[mago] here.
+      - name: Mutation testing
+        env:
+          INFECTION_DASHBOARD_API_KEY: ${{ secrets.INFECTION_DASHBOARD_API_KEY }}
+        run: composer mutation-test
