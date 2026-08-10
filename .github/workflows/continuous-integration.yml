@@ -63,6 +63,16 @@ on:
         type: string
         required: false
         default: ""
+      min-msi:
+        description: "Minimum Mutation Score Indicator (%) required to pass the mutation-test job."
+        type: string
+        required: false
+        default: "10"
+      min-covered-msi:
+        description: "Minimum covered-code MSI (%) required to pass the mutation-test job."
+        type: string
+        required: false
+        default: "10"
     secrets:
       CODECOV_TOKEN:
         required: false
@@ -255,4 +265,4 @@ jobs:
       - name: Mutation testing
         env:
           INFECTION_DASHBOARD_API_KEY: ${{ secrets.INFECTION_DASHBOARD_API_KEY }}
-        run: composer mutation-test
+        run: composer mutation-test -- --min-msi=${{ inputs.min-msi }} --min-covered-msi=${{ inputs.min-covered-msi }} --logger-github
