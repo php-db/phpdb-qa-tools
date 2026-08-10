@@ -99,6 +99,8 @@ need.
 
 `needs: [test]`, job-level `if: inputs.enable-codecov`. Downloads the
 `clover.xml` artifact and runs `codecov/codecov-action`. No PHP setup, no DB.
+`fail_ci_if_error: false` — report-only for all consuming repos while they're
+still legacy codebases being migrated; upload/coverage issues don't fail CI.
 
 `CODECOV_TOKEN` is an org-wide upload token (php-db org), so it can't infer
 the target repo on its own — pass `slug: ${{ github.repository }}`. Inside a
