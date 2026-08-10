@@ -73,6 +73,11 @@ on:
         type: string
         required: false
         default: "10"
+      test-env-json:
+        description: "JSON object of extra env vars exported before running tests (e.g. to override a phpunit.xml.dist connection setting for CI, since PHPUnit's <env> won't override an already-set real env var)."
+        type: string
+        required: false
+        default: "{}"
     secrets:
       CODECOV_TOKEN:
         required: false
@@ -175,6 +180,14 @@ jobs:
         if: matrix.dependencies == 'latest'
         run: composer update --no-interaction --no-progress ${{ inputs.composer-options }}
 
+      # PHPUnit's <env> in phpunit.xml.dist won't override an already-set real
+      # env var (no force="true"), so this lets a caller override a connection
+      # setting for CI (e.g. DB hostname) without touching that file, which may
+      # need a different value for local dev (e.g. Docker Compose networking).
+      - name: Export test environment overrides
+        if: inputs.test-env-json != '{}'
+        run: echo '${{ inputs.test-env-json }}' | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> "$GITHUB_ENV"
+
       - name: Unit tests
         if: ${{ !(matrix.php == inputs.coverage-php-version && matrix.dependencies == 'locked') }}
         run: composer test
@@ -256,6 +269,10 @@ jobs:
 
       - name: Install dependencies
         run: composer install --no-interaction --no-progress ${{ inputs.composer-options }}
+
+      - name: Export test environment overrides
+        if: inputs.test-env-json != '{}'
+        run: echo '${{ inputs.test-env-json }}' | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> "$GITHUB_ENV"
 
       - name: Pin Mago PHP version
         run: echo "MAGO_PHP_VERSION=${{ inputs.coverage-php-version }}" >> "$GITHUB_ENV"

@@ -162,9 +162,28 @@ within the same GitHub org.
 | `coverage-php-version` | Which matrix leg is canonical for coverage/mutation. |
 | `min-msi` | Minimum MSI (%) required to pass `mutation-test` (default `"10"`, config-based per repo). |
 | `min-covered-msi` | Minimum covered-code MSI (%) required to pass `mutation-test` (default `"10"`, config-based per repo). |
+| `test-env-json` | JSON object of extra env vars exported (via `$GITHUB_ENV`) before running tests in `test` and `mutation-test`. |
 
 Plus `secrets: CODECOV_TOKEN`, `INFECTION_DASHBOARD_API_KEY` on
 `workflow_call` (both `required: false`).
+
+### Overriding a `phpunit.xml.dist` connection setting for CI
+
+PHPUnit's `<env>` element does **not** override an already-set real
+environment variable unless `force="true"` is set (confirmed via PHPUnit's
+docs). This means a caller can override a `phpunit.xml.dist` default (e.g. a
+DB hostname that needs to differ between local dev and CI) via
+`test-env-json`, without editing that file or needing `force="true"` (which
+would break the local-dev default). Example: phpdb-mysql's local
+`compose.yml` runs the PHP and MySQL containers on the same Docker Compose
+network, so `phpunit.xml.dist` defaults `TESTS_PHPDB_ADAPTER_MYSQL_HOSTNAME`
+to `mysql` (the container name, resolvable via Compose's built-in DNS). In
+CI, the `test`/`mutation-test` jobs run directly on the runner VM (no
+`container:` key), so the DB (started via the manual `docker run` step) is
+only reachable via `127.0.0.1` and the mapped port — GitHub's own docs
+confirm this is required when the job isn't itself containerized. Setting
+`test-env-json: '{"TESTS_PHPDB_ADAPTER_MYSQL_HOSTNAME":"127.0.0.1"}'` in the
+caller workflow resolves this without touching `phpunit.xml.dist`.
 
 ## Reference example
 
