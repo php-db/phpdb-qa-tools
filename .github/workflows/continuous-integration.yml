@@ -73,6 +73,11 @@ on:
         type: string
         required: false
         default: "10"
+      mago-version:
+        description: "Mago release installed for the format, lint, analyze, guard and mutation-test jobs. Keep in step with the version in mago.toml."
+        type: string
+        required: false
+        default: "1.59.0"
       test-env-json:
         description: "JSON object of extra env vars exported before running tests (e.g. to override a phpunit.xml.dist connection setting for CI, since PHPUnit's <env> won't override an already-set real env var)."
         type: string
@@ -101,7 +106,7 @@ jobs:
         with:
           php-version: ${{ matrix.php }}
           coverage: none
-          tools: mago
+          tools: mago:${{ inputs.mago-version }}
 
       - name: Install dependencies
         run: composer install --no-interaction --no-progress ${{ inputs.composer-options }}
@@ -248,7 +253,7 @@ jobs:
         with:
           php-version: ${{ inputs.coverage-php-version }}
           coverage: pcov
-          tools: mago
+          tools: mago:${{ inputs.mago-version }}
 
       - name: Start DB service
         if: inputs.db-image != '' && inputs.run-integration

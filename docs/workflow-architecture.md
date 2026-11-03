@@ -25,7 +25,7 @@ graph LR
 ## `mago` job
 
 Matrix: `php-versions` only. Runs `mago format --check`, `mago lint`,
-`mago analyze`, `mago guard`. No DB, no dependency-strategy matrix — the
+`mago analyze`, `mago guard` with the Mago release named by `mago-version`. No DB, no dependency-strategy matrix — the
 committed `composer.lock` is enough for type resolution.
 
 ## `test` job
@@ -162,6 +162,7 @@ within the same GitHub org.
 | `coverage-php-version` | Which matrix leg is canonical for coverage/mutation. |
 | `min-msi` | Minimum MSI (%) required to pass `mutation-test` (default `"10"`, config-based per repo). |
 | `min-covered-msi` | Minimum covered-code MSI (%) required to pass `mutation-test` (default `"10"`, config-based per repo). |
+| `mago-version` | Mago release installed by `mago` and `mutation-test` (default `"1.59.0"`). Pinned so a new Mago release can't fail CI without a code change; keep it in step with `version` in `mago.toml`. |
 | `test-env-json` | JSON object of extra env vars exported (via `$GITHUB_ENV`) before running tests in `test` and `mutation-test`. |
 
 Plus `secrets: CODECOV_TOKEN`, `INFECTION_DASHBOARD_API_KEY` on
