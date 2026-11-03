@@ -10,7 +10,7 @@
 #   [source]
 #   paths = ["src", "test"]
 #   includes = ["vendor"]
-version = "1"
+version = "1.59.0"
 
 [formatter]
 preset = "default"
