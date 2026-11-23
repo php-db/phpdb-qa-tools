@@ -89,6 +89,11 @@ on:
       INFECTION_DASHBOARD_API_KEY:
         required: false
 
+# A called workflow can only reduce what the caller grants, so this is a ceiling.
+# Every job here reads the checkout and nothing else.
+permissions:
+  contents: read
+
 jobs:
   mago:
     name: "Mago (PHP ${{ matrix.php }})"
@@ -99,22 +104,30 @@ jobs:
         php: ${{ fromJSON(inputs.php-versions) }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Set up PHP and Mago
-        uses: shivammathur/setup-php@v2
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
         with:
           php-version: ${{ matrix.php }}
           coverage: none
           tools: mago:${{ inputs.mago-version }}
 
       - name: Install dependencies
-        run: composer install --no-interaction --no-progress ${{ inputs.composer-options }}
+        env:
+          COMPOSER_OPTIONS: ${{ inputs.composer-options }}
+        # Unquoted on purpose: the value is a flag list and must be word-split.
+        # Expansion is not re-parsed, so metacharacters in the value stay literal.
+        run: composer install --no-interaction --no-progress $COMPOSER_OPTIONS
 
       # Overrides php-version from the consumer's mago.toml for each matrix leg
       # without mutating the committed config file.
       - name: Pin Mago PHP version
-        run: echo "MAGO_PHP_VERSION=${{ matrix.php }}" >> "$GITHUB_ENV"
+        env:
+          MATRIX_PHP: ${{ matrix.php }}
+        run: echo "MAGO_PHP_VERSION=$MATRIX_PHP" >> "$GITHUB_ENV"
 
       - name: Check formatting
         run: mago format --check
@@ -141,10 +154,12 @@ jobs:
         dependencies: ["lowest", "locked", "latest"]
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Set up PHP
-        uses: shivammathur/setup-php@v2
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
         with:
           php-version: ${{ matrix.php }}
           coverage: ${{ (matrix.php == inputs.coverage-php-version && matrix.dependencies == 'locked') && 'pcov' || 'none' }}
@@ -156,18 +171,28 @@ jobs:
       # so both steps below are skipped at zero cost.
       - name: Start DB service
         if: inputs.db-image != ''
+        env:
+          DB_PORT: ${{ inputs.db-port }}
+          DB_IMAGE: ${{ inputs.db-image }}
+          DB_ENV_JSON: ${{ inputs.db-env-json }}
         run: |
           docker run -d --name db \
-            -p ${{ inputs.db-port }}:${{ inputs.db-port }} \
-            $(echo '${{ inputs.db-env-json }}' | jq -r 'to_entries[] | "-e \(.key)=\(.value)"' | tr '\n' ' ') \
-            ${{ inputs.db-image }}
+            -p "${DB_PORT}:${DB_PORT}" \
+            $(printf '%s' "$DB_ENV_JSON" | jq -r 'to_entries[] | "-e \(.key)=\(.value)"' | tr '\n' ' ') \
+            "$DB_IMAGE"
 
       - name: Wait for DB to be healthy
         if: inputs.db-image != ''
+        env:
+          DB_HEALTH_RETRIES: ${{ inputs.db-health-retries }}
+          DB_HEALTH_INTERVAL_SECONDS: ${{ inputs.db-health-interval-seconds }}
+          DB_HEALTH_CMD: ${{ inputs.db-health-cmd }}
+        # DB_HEALTH_CMD stays unquoted: it is a command plus arguments and must
+        # be word-split. Expansion is not re-parsed, so metacharacters stay literal.
         run: |
-          for i in $(seq 1 ${{ inputs.db-health-retries }}); do
-            docker exec db ${{ inputs.db-health-cmd }} && exit 0
-            sleep ${{ inputs.db-health-interval-seconds }}
+          for i in $(seq 1 "$DB_HEALTH_RETRIES"); do
+            docker exec db $DB_HEALTH_CMD && exit 0
+            sleep "$DB_HEALTH_INTERVAL_SECONDS"
           done
           echo "DB did not become healthy in time" && exit 1
 
@@ -175,15 +200,21 @@ jobs:
       # "locked" uses the committed composer.lock as-is.
       - name: Install dependencies (lowest)
         if: matrix.dependencies == 'lowest'
-        run: composer update --prefer-lowest --no-interaction --no-progress ${{ inputs.composer-options }}
+        env:
+          COMPOSER_OPTIONS: ${{ inputs.composer-options }}
+        run: composer update --prefer-lowest --no-interaction --no-progress $COMPOSER_OPTIONS
 
       - name: Install dependencies (locked)
         if: matrix.dependencies == 'locked'
-        run: composer install --no-interaction --no-progress ${{ inputs.composer-options }}
+        env:
+          COMPOSER_OPTIONS: ${{ inputs.composer-options }}
+        run: composer install --no-interaction --no-progress $COMPOSER_OPTIONS
 
       - name: Install dependencies (latest)
         if: matrix.dependencies == 'latest'
-        run: composer update --no-interaction --no-progress ${{ inputs.composer-options }}
+        env:
+          COMPOSER_OPTIONS: ${{ inputs.composer-options }}
+        run: composer update --no-interaction --no-progress $COMPOSER_OPTIONS
 
       # PHPUnit's <env> in phpunit.xml.dist won't override an already-set real
       # env var (no force="true"), so this lets a caller override a connection
@@ -191,7 +222,9 @@ jobs:
       # need a different value for local dev (e.g. Docker Compose networking).
       - name: Export test environment overrides
         if: inputs.test-env-json != '{}'
-        run: echo '${{ inputs.test-env-json }}' | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> "$GITHUB_ENV"
+        env:
+          TEST_ENV_JSON: ${{ inputs.test-env-json }}
+        run: printf '%s' "$TEST_ENV_JSON" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> "$GITHUB_ENV"
 
       - name: Unit tests
         if: ${{ !(matrix.php == inputs.coverage-php-version && matrix.dependencies == 'locked') }}
@@ -207,7 +240,7 @@ jobs:
 
       - name: Upload coverage artifact
         if: matrix.php == inputs.coverage-php-version && matrix.dependencies == 'locked'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-clover
           path: clover.xml
@@ -219,15 +252,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Download coverage artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: coverage-clover
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           # CODECOV_TOKEN is an org-wide upload token, which can't infer the
@@ -236,7 +271,7 @@ jobs:
           slug: ${{ github.repository }}
           files: clover.xml
           # Report-only for now across all consuming repos (legacy codebases
-          # being migrated) — don't fail CI on upload/coverage issues yet.
+          # being migrated) - don't fail CI on upload/coverage issues yet.
           fail_ci_if_error: false
 
   mutation-test:
@@ -246,10 +281,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
 
       - name: Set up PHP and Mago
-        uses: shivammathur/setup-php@v2
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # v2
         with:
           php-version: ${{ inputs.coverage-php-version }}
           coverage: pcov
@@ -257,34 +294,54 @@ jobs:
 
       - name: Start DB service
         if: inputs.db-image != '' && inputs.run-integration
+        env:
+          DB_PORT: ${{ inputs.db-port }}
+          DB_IMAGE: ${{ inputs.db-image }}
+          DB_ENV_JSON: ${{ inputs.db-env-json }}
         run: |
           docker run -d --name db \
-            -p ${{ inputs.db-port }}:${{ inputs.db-port }} \
-            $(echo '${{ inputs.db-env-json }}' | jq -r 'to_entries[] | "-e \(.key)=\(.value)"' | tr '\n' ' ') \
-            ${{ inputs.db-image }}
+            -p "${DB_PORT}:${DB_PORT}" \
+            $(printf '%s' "$DB_ENV_JSON" | jq -r 'to_entries[] | "-e \(.key)=\(.value)"' | tr '\n' ' ') \
+            "$DB_IMAGE"
 
       - name: Wait for DB to be healthy
         if: inputs.db-image != '' && inputs.run-integration
+        env:
+          DB_HEALTH_RETRIES: ${{ inputs.db-health-retries }}
+          DB_HEALTH_INTERVAL_SECONDS: ${{ inputs.db-health-interval-seconds }}
+          DB_HEALTH_CMD: ${{ inputs.db-health-cmd }}
+        # DB_HEALTH_CMD stays unquoted: it is a command plus arguments and must
+        # be word-split. Expansion is not re-parsed, so metacharacters stay literal.
         run: |
-          for i in $(seq 1 ${{ inputs.db-health-retries }}); do
-            docker exec db ${{ inputs.db-health-cmd }} && exit 0
-            sleep ${{ inputs.db-health-interval-seconds }}
+          for i in $(seq 1 "$DB_HEALTH_RETRIES"); do
+            docker exec db $DB_HEALTH_CMD && exit 0
+            sleep "$DB_HEALTH_INTERVAL_SECONDS"
           done
           echo "DB did not become healthy in time" && exit 1
 
       - name: Install dependencies
-        run: composer install --no-interaction --no-progress ${{ inputs.composer-options }}
+        env:
+          COMPOSER_OPTIONS: ${{ inputs.composer-options }}
+        # Unquoted on purpose: the value is a flag list and must be word-split.
+        # Expansion is not re-parsed, so metacharacters in the value stay literal.
+        run: composer install --no-interaction --no-progress $COMPOSER_OPTIONS
 
       - name: Export test environment overrides
         if: inputs.test-env-json != '{}'
-        run: echo '${{ inputs.test-env-json }}' | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> "$GITHUB_ENV"
+        env:
+          TEST_ENV_JSON: ${{ inputs.test-env-json }}
+        run: printf '%s' "$TEST_ENV_JSON" | jq -r 'to_entries[] | "\(.key)=\(.value)"' >> "$GITHUB_ENV"
 
       - name: Pin Mago PHP version
-        run: echo "MAGO_PHP_VERSION=${{ inputs.coverage-php-version }}" >> "$GITHUB_ENV"
+        env:
+          COVERAGE_PHP: ${{ inputs.coverage-php-version }}
+        run: echo "MAGO_PHP_VERSION=$COVERAGE_PHP" >> "$GITHUB_ENV"
 
       # Mago is invoked internally by Infection itself (staticAnalysisTool config
-      # in infection.json5), not by this workflow directly — no needs:[mago] here.
+      # in infection.json5), not by this workflow directly - no needs:[mago] here.
       - name: Mutation testing
         env:
           INFECTION_DASHBOARD_API_KEY: ${{ secrets.INFECTION_DASHBOARD_API_KEY }}
-        run: composer mutation-test -- --min-msi=${{ inputs.min-msi }} --min-covered-msi=${{ inputs.min-covered-msi }} --logger-github
+          MIN_MSI: ${{ inputs.min-msi }}
+          MIN_COVERED_MSI: ${{ inputs.min-covered-msi }}
+        run: composer mutation-test -- --min-msi="$MIN_MSI" --min-covered-msi="$MIN_COVERED_MSI" --logger-github
