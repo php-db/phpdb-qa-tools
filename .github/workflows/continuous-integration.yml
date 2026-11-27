@@ -77,7 +77,7 @@ on:
         description: "Mago release installed for the format, lint, analyze, guard and mutation-test jobs. Keep in step with the version in mago.toml."
         type: string
         required: false
-        default: "1.59.0"
+        default: "1.61.0"
       test-env-json:
         description: "JSON object of extra env vars exported before running tests (e.g. to override a phpunit.xml.dist connection setting for CI, since PHPUnit's <env> won't override an already-set real env var)."
         type: string

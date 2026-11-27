@@ -1,4 +1,4 @@
-#:schema https://mago.carthage.software/1.43.0/schema.json
+#:schema https://mago.carthage.software/1.61.0/schema.json
 # php-db/phpdb-qa-tools — shared base configuration.
 #
 # Consuming repositories extend this file and supply the project-specific
@@ -10,7 +10,7 @@
 #   [source]
 #   paths = ["src", "test"]
 #   includes = ["vendor"]
-version = "1.59.0"
+version = "1.61.0"
 
 [formatter]
 preset = "default"
